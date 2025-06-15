@@ -4,12 +4,11 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Any, AsyncIterable, AsyncIterator, Literal
+from typing import Any, AsyncIterable, AsyncIterator, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai.log import logger
-from ai.utils import aio
 
 from ..exceptions import APIConnectionError, APIError
 from ..types import (
@@ -85,7 +84,7 @@ class Bot(ABC):
         await self.aclose()
 
 
-class BotStream(ABC):
+class BotStream(ABC, AsyncIterator[ChatChunk]):
     def __init__(
         self,
         bot: Bot,
@@ -98,63 +97,9 @@ class BotStream(ABC):
         self._chat_ctx = chat_ctx
         self._tools = tools
         self._conn_options = conn_options
-
-        self._event_ch = aio.Chan[ChatChunk]()
-        self._event_aiter, monitor_aiter = aio.iter_tools.tee(self._event_ch, 2)
-        self._current_attempt_has_error = False
-        # self._metrics_task = asyncio.create_task(
-        #     self._metrics_monitor_task(monitor_aiter), name="MODEL._metrics_task"
-        # )
-        self._task = asyncio.create_task(self._main_task())
-
-    @abstractmethod
-    async def _run(self) -> None: ...
-
-    async def _main_task(self) -> None:
-        for i in range(self._conn_options.max_retry + 1):
-            try:
-                logger.debug("Starting _run attempt %d", i)
-                return await self._run()
-            except APIError as e:
-                retry_interval = self._conn_options._interval_for_retry(i)
-
-                if self._conn_options.max_retry == 0 or not e.retryable:
-                    self._emit_error(e, recoverable=False)
-                    raise APIConnectionError(
-                        f"failed to generate model completion after {self._conn_options.max_retry + 1} attempts",
-                    ) from e
-
-                else:
-                    self._emit_error(e, retryable=True)
-                    logger.warning(
-                        f"failed to generate model completion, retring in {retry_interval}s",
-                        exc_info=e,
-                        extra={
-                            "model": self._model._label,
-                            "attempt": i + 1,
-                        },
-                    )
-
-                if retry_interval > 0:
-                    await asyncio.sleep(retry_interval)
-
-                self._current_attempt_has_error = False
-
-            except Exception as e:
-                self._emit_error(e, recoverable=False)
-                raise
-
-    def _emit_error(self, api_error: Exception, recoverable: bool) -> None:
-        self._current_attempt_has_error = True
-        self._bot.emit(
-            "error",
-            BotError(
-                timestamp=time.time(),
-                label=self._bot._label,
-                error=api_error,
-                recoverable=recoverable,
-            ),
-        )
+        self._current_attempt = 0
+        self._generator: Optional[AsyncIterator[ChatChunk]] = None
+        self._closed = False
 
     @property
     def chat_ctx(self) -> ChatContext:
@@ -164,22 +109,74 @@ class BotStream(ABC):
     def tools(self) -> list[FunctionTool | RawFunctionTool]:
         return self._tools
 
-    async def aclose(self) -> None:
-        await aio.cancel_and_wait(self._task)
+    @abstractmethod
+    async def _create_stream(self) -> AsyncIterator[ChatChunk]: ...
 
     async def __anext__(self) -> ChatChunk:
+        if self._closed:
+            raise RuntimeError("Stream is closed")
+
+        if self._generator is None:
+            self._generator = await self._create_retry_stream()
+
         try:
-            val = await self._event_aiter.__anext__()
+            return await self._generator.__anext__()
         except StopAsyncIteration:
-            if not self._task.cancelled() and (exc := self._task.exception()):
-                raise exc
+            self._generator = None
+            raise
+        except asyncio.CancelledError:
+            self._generator = None
+            raise
+        except Exception as e:
+            if (
+                self._is_retryable_error(e)
+                and self._current_attempt < self._conn_options.max_retry
+            ):
+                self._current_attempt += 1
+                retry_interval = self._conn_options._interval_for_retry(
+                    self._current_attempt
+                )
+                logger.warning(
+                    f"Stream error (attempt {self._current_attempt}), retrying in {retry_interval}s",
+                    exc_info=e,
+                )
+                await asyncio.sleep(retry_interval)
 
-            raise StopAsyncIteration from None
+                self._generator = await self._create_retry_stream()
+                return await self._generator.__anext__()
 
-        return val
+            self._generator = None
+            raise
 
-    def __aiter__(self) -> AsyncIterator[ChatChunk]:
-        return self
+    async def _create_retry_stream(self) -> AsyncIterator[ChatChunk]:
+        self._current_attempt = 0
+
+        for attempt in range(self._conn_options.max_retry + 1):
+            try:
+                self._current_attempt = 0
+                return self._create_stream()
+            except Exception as e:
+                if attempt < self._conn_options.max_retry and self._is_retryable_error(
+                    e
+                ):
+                    retry_interval = self._conn_options._interval_for_retry(attempt)
+                    logger.warning(
+                        f"Connection error (attempt {attempt+1}), retrying in {retry_interval}s",
+                        exc_info=e,
+                    )
+                    await asyncio.sleep(retry_interval)
+                else:
+                    raise
+
+    def _is_retryable_error(self, error: Exception) -> bool:
+        return True
+
+    async def aclose(self) -> None:
+        self._closed = True
+        if self._generator is not None:
+            if hasattr(self._generator, "aclose"):
+                await self._generator.aclose()
+            self._generator = None
 
     async def __aenter__(self) -> BotStream:
         return self
@@ -192,7 +189,7 @@ class BotStream(ABC):
     ) -> None:
         await self.aclose()
 
-    def to_str_iterale(self) -> AsyncIterable[str]:
+    def to_str_iterable(self) -> AsyncIterable[str]:
         async def _iterable() -> AsyncIterable[str]:
             async with self:
                 async for chunk in self:

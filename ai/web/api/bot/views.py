@@ -31,20 +31,23 @@ async def stream():
     chat_ctx = ChatContext()
     chat_ctx.add_message(role="user", content="Tell me a joke")
 
-    close_event = asyncio.Event()
-
     async def event_generator():
-        try:
-            async with bot.chat(chat_ctx=chat_ctx) as stream:
+        async with bot.chat(chat_ctx=chat_ctx) as stream:
+            try:
                 async for chunk in stream:
                     yield {
                         "event": "message",
                         "data": json.dumps(chunk.model_dump()),
                     }
-        except Exception as e:
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(e)}),
-            }
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e)}),
+                }
+            finally:
+                if stream is not None and not stream._closed:
+                    await stream.aclose()
 
     return EventSourceResponse(event_generator())

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, AsyncIterator, cast
 
 import httpx
 import openai
@@ -207,45 +207,30 @@ class BotStream(bot.BotStream):
         self._client = client
         self._extra_kwargs = extra_kwargs
 
-    async def _run(self) -> None:
-        self._oai_stream: AsyncStream[ChatCompletionChunk] | None = None
-        self._tool_call_id: str | None = None
-        self._fnc_name: str | None = None
-        self._func_raw_arguments: str | None = None
-        self._tool_index: int | None = None
-        retryable = True
+    async def _create_stream(self) -> AsyncIterator[bot.ChatChunk]:
+        tool_call_id = None
+        fnc_name = None
+        func_raw_arguments = None
+        tool_index = None
+
+        chat_ctx, _ = self._chat_ctx.to_provider_format(format=self._provider_fmt)
+        fnc_ctx = to_fnc_ctx(self._tools) if self._tools else openai.NOT_GIVEN
+
+        oai_stream = await self._client.chat.completions.create(
+            messages=cast(list[ChatCompletionMessageParam], chat_ctx),
+            tools=fnc_ctx,
+            model=self._model,
+            stream_options={"include_usage": True},
+            stream=True,
+            timeout=httpx.Timeout(self._conn_options.timeout),
+            **self._extra_kwargs,
+        )
 
         try:
-            chat_ctx, _ = self._chat_ctx.to_provider_format(format=self._provider_fmt)
-            fnc_ctx = to_fnc_ctx(self._tools) if self._tools else openai.NOT_GIVEN
-
-            logger.debug(
-                "chat.completions.create",
-                extra={"fnc_ctx": fnc_ctx, "tool_choice": "auto", "chat_ctx": chat_ctx},
-            )
-
-            self._oai_stream = stream = await self._client.chat.completions.create(
-                messages=cast(list[ChatCompletionMessageParam], chat_ctx),
-                tools=fnc_ctx,
-                model=self._model,
-                stream_options={"include_usage": True},
-                stream=True,
-                timeout=httpx.Timeout(self._conn_options.timeout),
-                **self._extra_kwargs,
-            )
-
-            thinking = asyncio.Event()
-            async with stream:
-                async for chunk in stream:
-                    for choice in chunk.choices:
-                        chat_chunk = self._parse_choice(chunk.id, choice, thinking)
-                        if chat_chunk is not None:
-                            retryable = False
-                            self._event_ch.send_nowait(chat_chunk)
-
-                    if chunk.usage is not None:
-                        retryable = False
-                        chunk = bot.ChatChunk(
+            async with oai_stream:
+                async for chunk in oai_stream:
+                    if chunk.usage:
+                        yield bot.ChatChunk(
                             id=chunk.id,
                             usage=bot.CompletionUsage(
                                 completions_tokens=chunk.usage.completion_tokens,
@@ -253,91 +238,89 @@ class BotStream(bot.BotStream):
                                 total_tokens=chunk.usage.total_tokens,
                             ),
                         )
-                        self._event_ch.send_nowait(chunk)
 
-        except openai.APITimeoutError:
-            raise APITimeoutError(retryable=retryable) from None
-        except openai.APIStatusError as e:
-            raise APIStatusError(
-                e.message,
-                status_code=e.status_code,
-                request_id=e.request_id,
-                body=e.body,
-                retryable=retryable,
-            ) from None
-        except Exception as e:
-            raise APIConnectionError(retryable=retryable) from e
-        finally:
-            self._event_ch.close()
+                    for choice in chunk.choices:
+                        if not choice.delta:
+                            continue
 
-    def _parse_choice(
-        self, id: str, choice: Choice, thinking: asyncio.Event
-    ) -> bot.ChatChunk | None:
-        delta = choice.delta
+                        delta = choice.delta
 
-        if delta is None:
-            return None
+                        if delta.tool_calls:
+                            for tool in delta.tool_calls:
+                                if not tool.function:
+                                    continue
 
-        if delta.tool_calls:
-            for tool in delta.tool_calls:
-                if not tool.function:
-                    continue
+                                if tool.id and tool.index != tool_index:
+                                    if tool_call_id:
+                                        yield self._create_tool_chunk(
+                                            chunk.id,
+                                            tool_call_id,
+                                            fnc_name,
+                                            func_raw_arguments,
+                                        )
+                                        tool_call_id = fnc_name = func_raw_arguments = (
+                                            None
+                                        )
 
-                call_chunk = None
-                if self._tool_call_id and tool.id and tool.index != self._tool_index:
-                    call_chunk = bot.ChatChunk(
-                        id=id,
-                        delta=bot.ChoiceDelta(
-                            role="assistant",
-                            content=delta.content,
-                            tool_calls=[
-                                bot.FunctionCall(
-                                    arguments=self._func_raw_arguments or "",
-                                    name=self._fnc_name or "",
-                                    call_id=self._tool_call_id or "",
+                                    tool_index = tool.index
+                                    tool_call_id = tool.id
+                                    fnc_name = tool.function.name
+                                    func_raw_arguments = tool.function.arguments or ""
+
+                                elif tool.function.arguments:
+                                    func_raw_arguments += tool.function.arguments
+
+                        if (
+                            choice.finish_reason in ("tool_calls", "stop")
+                            and tool_call_id
+                        ):
+                            yield self._create_tool_chunk(
+                                chunk.id, tool_call_id, fnc_name, func_raw_arguments
+                            )
+                            tool_call_id = fnc_name = func_raw_arguments = None
+
+                        if delta.content:
+                            cleaned_content = delta.content
+                            if cleaned_content:
+                                yield bot.ChatChunk(
+                                    id=chunk.id,
+                                    delta=bot.ChoiceDelta(
+                                        content=cleaned_content, role="assistant"
+                                    ),
                                 )
-                            ],
-                        ),
-                    )
-                    self._tool_call_id = self._fnc_name = self._func_raw_arguments = (
-                        None
-                    )
 
-                if tool.function.name:
-                    self._tool_index = tool.index
-                    self._tool_call_id = tool.id
-                    self._fnc_name = tool.function.name
-                    self._func_raw_arguments = tool.function.arguments or ""
-                elif tool.function.arguments:
-                    self._func_raw_arguments += tool.function.arguments
+        except Exception as e:
+            raise self._convert_error(e) from e
 
-                if call_chunk is not None:
-                    return call_chunk
-
-        if choice.finish_reason in ("tool_calls", "stop") and self._tool_call_id:
-            call_chunk = bot.ChatChunk(
-                id=id,
-                delta=bot.ChoiceDelta(
-                    role="assistant",
-                    content=delta.content,
-                    tool_calls=[
-                        bot.FunctionToolCall(
-                            arguments=self._func_raw_arguments or "",
-                            name=self._fnc_name or "",
-                            call_id=self._tool_call_id or "",
-                        )
-                    ],
-                ),
-            )
-            self._tool_call_id = self._fnc_name = self._func_raw_arguments = None
-            return call_chunk
-
-        delta.content = bot.utils.strip_thinking_tokens(delta.content, thinking)
-
-        if not delta.content:
-            return None
-
+    def _create_tool_chunk(
+        self, chunk_id: str, call_id: str, name: str | None, arguments: str | None
+    ) -> bot.ChatChunk:
         return bot.ChatChunk(
-            id=id,
-            delta=bot.ChoiceDelta(content=delta.content, role="assistant"),
+            id=chunk_id,
+            delta=bot.ChoiceDelta(
+                role="assistant",
+                tool_calls=[
+                    bot.FunctionToolCall(
+                        name=name or "", arguments=arguments or "", call_id=call_id
+                    )
+                ],
+            ),
         )
+
+    def _is_retryable_error(self, error: Exception) -> bool:
+        if isinstance(error, asyncio.CancelledError):
+            return False
+        if isinstance(error, openai.APITimeoutError):
+            return True
+        if isinstance(error, openai.APIStatusError):
+            return error.status_code in {429, 500, 502, 503, 504}
+        if isinstance(error, APIConnectionError):
+            return True
+        return False
+
+    def _convert_error(self, error: Exception) -> Exception:
+        if isinstance(error, openai.APITimeoutError):
+            return APITimeoutError()
+        if isinstance(error, openai.APIStatusError):
+            return APIStatusError(error.message, status_code=error.status_code)
+        return APIConnectionError(f"Connection error: {str(error)}")
