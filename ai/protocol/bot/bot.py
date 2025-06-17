@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Any, AsyncIterable, AsyncIterator, Literal, Optional
@@ -10,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ai.log import logger
 
-from ..exceptions import APIConnectionError, APIError
 from ..types import (
     DEFAULT_API_CONNECT_OPTIONS,
     NOT_GIVEN,
@@ -128,16 +126,11 @@ class BotStream(ABC, AsyncIterator[ChatChunk]):
             self._generator = None
             raise
         except Exception as e:
-            if (
-                self._is_retryable_error(e)
-                and self._current_attempt < self._conn_options.max_retry
-            ):
+            if self._is_retryable_error(e) and self._current_attempt < self._conn_options.max_retry:
                 self._current_attempt += 1
-                retry_interval = self._conn_options._interval_for_retry(
-                    self._current_attempt
-                )
+                retry_interval = self._conn_options._interval_for_retry(self._current_attempt)
                 logger.warning(
-                    f"Stream error (attempt {self._current_attempt}), retrying in {retry_interval}s",
+                    f"Stream error (attempt {self._current_attempt}), retrying in {retry_interval}s ...",
                     exc_info=e,
                 )
                 await asyncio.sleep(retry_interval)
@@ -156,12 +149,10 @@ class BotStream(ABC, AsyncIterator[ChatChunk]):
                 self._current_attempt = 0
                 return self._create_stream()
             except Exception as e:
-                if attempt < self._conn_options.max_retry and self._is_retryable_error(
-                    e
-                ):
+                if attempt < self._conn_options.max_retry and self._is_retryable_error(e):
                     retry_interval = self._conn_options._interval_for_retry(attempt)
                     logger.warning(
-                        f"Connection error (attempt {attempt+1}), retrying in {retry_interval}s",
+                        f"Connection error (attempt {attempt+1}), retrying in {retry_interval}s ...",
                         exc_info=e,
                     )
                     await asyncio.sleep(retry_interval)

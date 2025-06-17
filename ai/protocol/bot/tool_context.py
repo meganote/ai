@@ -132,24 +132,22 @@ def function_tool(
             raise ValueError("raw function description must contain a parameters key")
 
         info = _RawFunctionToolInfo(raw_schema={**raw_schema}, name=raw_schema["name"])
+        setattr(func, ATTRIBUTE_RAW_TOOL_INFO, info)
         return cast(RawFunctionTool, func)
 
     def deco_func(func: F) -> FunctionTool:
-        from docstring_parser import parse_form_object
+        from docstring_parser import parse_from_object
 
-        docstring = parse_form_object(func)
+        docstring = parse_from_object(func)
         info = _FunctionToolInfo(
             name=name or func.__name__,
             description=description or docstring.description,
         )
+        setattr(func, ATTRIBUTE_TOOL_INFO, info)
         return cast(FunctionTool, func)
 
     if f is not None:
-        return (
-            deco_raw(cast(Raw_F, f))
-            if raw_schema is not None
-            else deco_func(cast(F, f))
-        )
+        return deco_raw(cast(Raw_F, f)) if raw_schema is not None else deco_func(cast(F, f))
 
     return deco_raw if raw_schema is not None else deco_func
 

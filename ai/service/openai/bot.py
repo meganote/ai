@@ -18,8 +18,13 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_chunk import Choice
 
 from ai.protocol import bot
-from ai.protocol.bot.chat_context import ChatContext
-from ai.protocol.bot.tool_context import FunctionTool, RawFunctionTool, ToolChoice
+from ai.protocol.bot import (
+    ChatContext,
+    FunctionTool,
+    RawFunctionTool,
+    ToolChoice,
+    is_given,
+)
 from ai.protocol.exceptions import APIConnectionError, APIStatusError, APITimeoutError
 from ai.protocol.types import (
     DEFAULT_API_CONNECT_OPTIONS,
@@ -27,7 +32,6 @@ from ai.protocol.types import (
     APIConnectOptions,
     NotGivenOr,
 )
-from ai.utils import is_given
 
 from .utils import to_fnc_ctx
 
@@ -152,9 +156,7 @@ class Bot(bot.Bot):
             extra["temperature"] = self._opts.temperature
 
         parallel_tool_calls = (
-            parallel_tool_calls
-            if is_given(parallel_tool_calls)
-            else self._opts.parallel_tool_calls
+            parallel_tool_calls if is_given(parallel_tool_calls) else self._opts.parallel_tool_calls
         )
         if is_given(parallel_tool_calls):
             extra["parallel_tool_calls"] = parallel_tool_calls
@@ -173,7 +175,7 @@ class Bot(bot.Bot):
                 extra["tool_choice"] = oai_tool_choice
 
         if is_given(response_format):
-            extra["response_format"] = llm_utils.to_openai_response_format(response_format)  # type: ignore
+            extra["response_format"] = bot.to_openai_response_format(response_format)  # type: ignore
 
         return BotStream(
             self,
@@ -229,6 +231,7 @@ class BotStream(bot.BotStream):
         try:
             async with oai_stream:
                 async for chunk in oai_stream:
+                    chunk: ChatCompletionChunk = cast(ChatCompletionChunk, chunk)
                     if chunk.usage:
                         yield bot.ChatChunk(
                             id=chunk.id,
@@ -240,10 +243,15 @@ class BotStream(bot.BotStream):
                         )
 
                     for choice in chunk.choices:
+                        choice: Choice = cast(Choice, choice)
                         if not choice.delta:
                             continue
 
                         delta = choice.delta
+
+                        logger.debug(
+                            f"Processing OpenAI chat completion chunk: {chunk.id}, choice: {choice.index}, delta: {delta}"
+                        )
 
                         if delta.tool_calls:
                             for tool in delta.tool_calls:
@@ -258,9 +266,7 @@ class BotStream(bot.BotStream):
                                             fnc_name,
                                             func_raw_arguments,
                                         )
-                                        tool_call_id = fnc_name = func_raw_arguments = (
-                                            None
-                                        )
+                                        tool_call_id = fnc_name = func_raw_arguments = None
 
                                     tool_index = tool.index
                                     tool_call_id = tool.id
@@ -270,10 +276,7 @@ class BotStream(bot.BotStream):
                                 elif tool.function.arguments:
                                     func_raw_arguments += tool.function.arguments
 
-                        if (
-                            choice.finish_reason in ("tool_calls", "stop")
-                            and tool_call_id
-                        ):
+                        if choice.finish_reason in ("tool_calls", "stop") and tool_call_id:
                             yield self._create_tool_chunk(
                                 chunk.id, tool_call_id, fnc_name, func_raw_arguments
                             )

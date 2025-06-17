@@ -1,4 +1,3 @@
-from . import utils
 from .bot import (
     Bot,
     BotError,
@@ -26,9 +25,11 @@ from .tool_context import (
     find_function_tools,
     function_tool,
     get_function_info,
+    get_raw_function_info,
     is_function_tool,
     is_raw_function_tool,
 )
+from .utils import is_given, to_openai_response_format
 
 __all__ = [
     "Bot",
@@ -51,9 +52,11 @@ __all__ = [
     "ToolContext",
     "ToolError",
     "find_function_tools",
+    "get_raw_function_info",
     "function_tool",
     "get_function_info",
     "is_function_tool",
     "is_raw_function_tool",
-    "utils",
+    "is_given",
+    "to_openai_response_format",
 ]

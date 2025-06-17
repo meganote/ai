@@ -84,9 +84,7 @@ def _to_chat_item(msg: bot.ChatItem) -> dict[str, Any]:
 
 
 def _to_image_content(image: bot.ImageContent) -> dict[str, Any]:
-    cache_key = (
-        "serialized_image"  # TODO(long): use hash of encoding options if available
-    )
+    cache_key = "serialized_image"  # TODO(long): use hash of encoding options if available
     if cache_key not in image._cache:
         image._cache[cache_key] = bot.utils.serialize_image(image)
     img: bot.utils.SerializedImage = image._cache[cache_key]

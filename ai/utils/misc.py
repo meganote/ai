@@ -2,13 +2,6 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import TypeVar
-
-from typing_extensions import TypeGuard
-
-from ..protocol.types import NotGiven, NotGivenOr
-
-_T = TypeVar("_T")
 
 
 def time_ms() -> int:
@@ -17,7 +10,3 @@ def time_ms() -> int:
 
 def shortuuid(prefix: str = "") -> str:
     return prefix + str(uuid.uuid4().hex)[:12]
-
-
-def is_given(obj: NotGivenOr[_T]) -> TypeGuard[_T]:
-    return not isinstance(obj, NotGiven)

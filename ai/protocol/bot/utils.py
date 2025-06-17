@@ -1,16 +1,34 @@
 import asyncio
 import inspect
-from typing import Annotated, Any, Callable, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    Callable,
+    TypeVar,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import BaseModel, TypeAdapter, create_model
 from pydantic.fields import Field, FieldInfo
 from pydantic_core import PydanticUndefined
+from typing_extensions import TypeGuard
 
+from ..types import NotGiven, NotGivenOr
 from . import _strict
 from .tool_context import FunctionTool, RawFunctionTool, get_function_info
 
 THINK_TAG_START = "<think>"
 THINK_TAG_END = "</think>"
+
+
+_T = TypeVar("_T")
+
+
+def is_given(obj: NotGivenOr[_T]) -> TypeGuard[_T]:
+    return not isinstance(obj, NotGiven)
+
 
 # def is_context_type(ty: type) -> bool:
 #     from ..voice.events import RunContext
@@ -22,11 +40,7 @@ THINK_TAG_END = "</think>"
 
 
 def is_typed_dict(cls: type | Any) -> bool:
-    return (
-        isinstance(cls, type)
-        and issubclass(cls, dict)
-        and hasattr(cls, "__annotations__")
-    )
+    return isinstance(cls, type) and issubclass(cls, dict) and hasattr(cls, "__annotations__")
 
 
 def build_strict_openai_schema(

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import time
-from typing import Annotated, Any, Literal, TypeAlias, Union, overload
+from typing import Annotated, Any, Literal, Sequence, TypeAlias, Union, overload
 
 from pydantic import BaseModel, Field
 
 from ai import utils
 
+from ..types import NOT_GIVEN, NotGivenOr
 from . import _provider_format
+from .tool_context import FunctionTool, RawFunctionTool
+from .utils import is_given
 
 ChatRole: TypeAlias = Literal["system", "user", "assistant", "tool"]
 
@@ -104,15 +107,150 @@ class ChatContext:
         self._items.append(message)
         return message
 
+    def insert(self, item: ChatItem | Sequence[ChatItem]) -> None:
+        """Insert an item or list of items into the chat context by creation time."""
+        items = item if isinstance(item, list) else [item]
+
+        for _item in items:
+            print(f"!!! Inserting item into chat context: {_item}")
+            idx = self.find_insertion_index(created_at=_item.created)
+            self._items.insert(idx, _item)
+
+    def get_by_id(self, item_id: str) -> ChatItem | None:
+        return next((item for item in self.items if item.id == item_id), None)
+
+    def index_by_id(self, item_id: str) -> int | None:
+        return next((i for i, item in enumerate(self.items) if item.id == item_id), None)
+
+    def copy(
+        self,
+        *,
+        exclude_function_call: bool = False,
+        exclude_instructions: bool = False,
+        exclude_empty_message: bool = False,
+        tools: NotGivenOr[Sequence[FunctionTool | RawFunctionTool | str | Any]] = NOT_GIVEN,
+    ) -> ChatContext:
+        items = []
+
+        from .tool_context import (
+            get_function_info,
+            get_raw_function_info,
+            is_function_tool,
+            is_raw_function_tool,
+        )
+
+        valid_tools = set[str]()
+        if is_given(tools):
+            for tool in tools:
+                if isinstance(tool, str):
+                    valid_tools.add(tool)
+                elif is_function_tool(tool):
+                    valid_tools.add(get_function_info(tool).name)
+                elif is_raw_function_tool(tool):
+                    valid_tools.add(get_raw_function_info(tool).name)
+                # TODO(theomonnom): other tools
+
+        for item in self.items:
+            if exclude_function_call and item.type in [
+                "function_call",
+                "function_call_output",
+            ]:
+                continue
+
+            if (
+                exclude_instructions
+                and item.type == "message"
+                and item.role in ["system", "developer"]
+            ):
+                continue
+
+            if exclude_empty_message and item.type == "message" and not item.content:
+                continue
+
+            if (
+                is_given(tools)
+                and (item.type == "function_call" or item.type == "function_call_output")
+                and item.name not in valid_tools
+            ):
+                continue
+
+            items.append(item)
+
+        return ChatContext(items)
+
+    def truncate(self, *, max_items: int) -> ChatContext:
+        """Truncate the chat context to the last N items in place.
+
+        Removes leading function calls to avoid partial function outputs.
+        Preserves the first system message by adding it back to the beginning.
+        """
+        instructions = next(
+            (item for item in self._items if item.type == "message" and item.role == "system"),
+            None,
+        )
+
+        new_items = self._items[-max_items:]
+        # chat ctx shouldn't start with function_call or function_call_output
+        while new_items and new_items[0].type in [
+            "function_call",
+            "function_call_output",
+        ]:
+            new_items.pop(0)
+
+        if instructions:
+            new_items.insert(0, instructions)
+
+        self._items[:] = new_items
+        return self
+
+    def to_dict(
+        self,
+        *,
+        exclude_image: bool = True,
+        exclude_audio: bool = True,
+        exclude_timestamp: bool = True,
+        exclude_function_call: bool = False,
+    ) -> dict[str, Any]:
+        items: list[ChatItem] = []
+        for item in self.items:
+            if exclude_function_call and item.type in [
+                "function_call",
+                "function_call_output",
+            ]:
+                continue
+
+            if item.type == "message":
+                item = item.model_copy()
+                if exclude_image:
+                    item.content = [c for c in item.content if not isinstance(c, ImageContent)]
+                if exclude_audio:
+                    item.content = [c for c in item.content if not isinstance(c, AudioContent)]
+
+            items.append(item)
+
+        exclude_fields = set()
+        if exclude_timestamp:
+            exclude_fields.add("created_at")
+
+        return {
+            "items": [
+                item.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                    exclude_defaults=False,
+                    exclude=exclude_fields,
+                )
+                for item in items
+            ],
+        }
+
     @overload
     def to_provider_format(
         self, format: Literal["openai"], *, inject_dummy_user_message: bool = True
     ) -> tuple[list[dict], Literal[None]]: ...
 
     @overload
-    def to_provider_format(
-        self, format: str, **kwargs: Any
-    ) -> tuple[list[dict], Any]: ...
+    def to_provider_format(self, format: str, **kwargs: Any) -> tuple[list[dict], Any]: ...
 
     def to_provider_format(
         self,
@@ -133,11 +271,24 @@ class ChatContext:
 
         if format == "openai":
             return _provider_format.openai.to_chat_ctx(self, **kwargs)
-        elif format == "google":
-            return _provider_format.google.to_chat_ctx(self, **kwargs)
-        elif format == "aws":
-            return _provider_format.aws.to_chat_ctx(self, **kwargs)
-        elif format == "anthropic":
-            return _provider_format.anthropic.to_chat_ctx(self, **kwargs)
+        # elif format == "google":
+        #     return _provider_format.google.to_chat_ctx(self, **kwargs)
+        # elif format == "aws":
+        #     return _provider_format.aws.to_chat_ctx(self, **kwargs)
+        # elif format == "anthropic":
+        #     return _provider_format.anthropic.to_chat_ctx(self, **kwargs)
         else:
             raise ValueError(f"Unsupported provider format: {format}")
+
+    def find_insertion_index(self, *, created_at: float) -> int:
+        """
+        Returns the index to insert an item by creation time.
+
+        Iterates in reverse, assuming items are sorted by `created_at`.
+        Finds the position after the last item with `created_at <=` the given timestamp.
+        """
+        for i in reversed(range(len(self._items))):
+            if self._items[i].created_at <= created_at:
+                return i + 1
+
+        return 0
