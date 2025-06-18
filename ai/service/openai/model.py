@@ -18,19 +18,14 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_chunk import Choice
 
 from ai.protocol import bot
-from ai.protocol.bot import (
-    ChatContext,
-    FunctionTool,
-    RawFunctionTool,
-    ToolChoice,
-    is_given,
-)
+from ai.protocol.bot import ChatContext, FunctionTool, RawFunctionTool, ToolChoice
 from ai.protocol.exceptions import APIConnectionError, APIStatusError, APITimeoutError
 from ai.protocol.types import (
     DEFAULT_API_CONNECT_OPTIONS,
     NOT_GIVEN,
     APIConnectOptions,
     NotGivenOr,
+    is_given,
 )
 
 from .utils import to_fnc_ctx
@@ -161,7 +156,9 @@ class Model(bot.Model):
             extra["temperature"] = self._opts.temperature
 
         parallel_tool_calls = (
-            parallel_tool_calls if is_given(parallel_tool_calls) else self._opts.parallel_tool_calls
+            parallel_tool_calls
+            if is_given(parallel_tool_calls)
+            else self._opts.parallel_tool_calls
         )
         if is_given(parallel_tool_calls):
             extra["parallel_tool_calls"] = parallel_tool_calls
@@ -205,7 +202,9 @@ class ModelStream(bot.ModelStream):
         conn_options: APIConnectOptions,
         extra_kwargs: dict[dict, Any],
     ) -> None:
-        super().__init__(model, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options)
+        super().__init__(
+            model, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options
+        )
         self._model = model
         self._provider_fmt = provider_fmt
         self._client = client
@@ -268,7 +267,9 @@ class ModelStream(bot.ModelStream):
                                             fnc_name,
                                             func_raw_arguments,
                                         )
-                                        tool_call_id = fnc_name = func_raw_arguments = None
+                                        tool_call_id = fnc_name = func_raw_arguments = (
+                                            None
+                                        )
 
                                     tool_index = tool.index
                                     tool_call_id = tool.id
@@ -278,7 +279,10 @@ class ModelStream(bot.ModelStream):
                                 elif tool.function.arguments:
                                     func_raw_arguments += tool.function.arguments
 
-                        if choice.finish_reason in ("tool_calls", "stop") and tool_call_id:
+                        if (
+                            choice.finish_reason in ("tool_calls", "stop")
+                            and tool_call_id
+                        ):
                             yield self._create_tool_chunk(
                                 chunk.id, tool_call_id, fnc_name, func_raw_arguments
                             )

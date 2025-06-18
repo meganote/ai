@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, TypeVar, Union
+from typing import Literal, TypeGuard, TypeVar, Union
 
 from typing_extensions import TypeAlias
 
@@ -19,6 +19,10 @@ class NotGiven:
 
 NotGivenOr: TypeAlias = Union[_T, NotGiven]
 NOT_GIVEN = NotGiven()
+
+
+def is_given(obj: NotGivenOr[_T]) -> TypeGuard[_T]:
+    return not isinstance(obj, NotGiven)
 
 
 @dataclass(frozen=True)

@@ -8,10 +8,9 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from ai import utils
 
-from ..types import NOT_GIVEN, NotGivenOr
+from ..types import NOT_GIVEN, NotGivenOr, is_given
 from . import _provider_format
 from .tool_context import FunctionTool, RawFunctionTool
-from .utils import is_given
 
 ChatRole: TypeAlias = Literal["system", "user", "assistant", "tool"]
 
@@ -121,7 +120,9 @@ class ChatContext:
         return next((item for item in self.items if item.id == item_id), None)
 
     def index_by_id(self, item_id: str) -> int | None:
-        return next((i for i, item in enumerate(self.items) if item.id == item_id), None)
+        return next(
+            (i for i, item in enumerate(self.items) if item.id == item_id), None
+        )
 
     def copy(
         self,
@@ -129,7 +130,9 @@ class ChatContext:
         exclude_function_call: bool = False,
         exclude_instructions: bool = False,
         exclude_empty_message: bool = False,
-        tools: NotGivenOr[Sequence[FunctionTool | RawFunctionTool | str | Any]] = NOT_GIVEN,
+        tools: NotGivenOr[
+            Sequence[FunctionTool | RawFunctionTool | str | Any]
+        ] = NOT_GIVEN,
     ) -> ChatContext:
         items = []
 
@@ -170,7 +173,9 @@ class ChatContext:
 
             if (
                 is_given(tools)
-                and (item.type == "function_call" or item.type == "function_call_output")
+                and (
+                    item.type == "function_call" or item.type == "function_call_output"
+                )
                 and item.name not in valid_tools
             ):
                 continue
@@ -186,7 +191,11 @@ class ChatContext:
         Preserves the first system message by adding it back to the beginning.
         """
         instructions = next(
-            (item for item in self._items if item.type == "message" and item.role == "system"),
+            (
+                item
+                for item in self._items
+                if item.type == "message" and item.role == "system"
+            ),
             None,
         )
 
@@ -223,9 +232,13 @@ class ChatContext:
             if item.type == "message":
                 item = item.model_copy()
                 if exclude_image:
-                    item.content = [c for c in item.content if not isinstance(c, ImageContent)]
+                    item.content = [
+                        c for c in item.content if not isinstance(c, ImageContent)
+                    ]
                 if exclude_audio:
-                    item.content = [c for c in item.content if not isinstance(c, AudioContent)]
+                    item.content = [
+                        c for c in item.content if not isinstance(c, AudioContent)
+                    ]
 
             items.append(item)
 
@@ -251,7 +264,9 @@ class ChatContext:
     ) -> tuple[list[dict], Literal[None]]: ...
 
     @overload
-    def to_provider_format(self, format: str, **kwargs: Any) -> tuple[list[dict], Any]: ...
+    def to_provider_format(
+        self, format: str, **kwargs: Any
+    ) -> tuple[list[dict], Any]: ...
 
     def to_provider_format(
         self,

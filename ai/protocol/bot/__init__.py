@@ -29,7 +29,7 @@ from .tool_context import (
     is_function_tool,
     is_raw_function_tool,
 )
-from .utils import is_given, to_openai_response_format
+from .utils import to_openai_response_format
 
 __all__ = [
     "Model",
@@ -57,6 +57,5 @@ __all__ = [
     "get_function_info",
     "is_function_tool",
     "is_raw_function_tool",
-    "is_given",
     "to_openai_response_format",
 ]

@@ -147,7 +147,11 @@ def function_tool(
         return cast(FunctionTool, func)
 
     if f is not None:
-        return deco_raw(cast(Raw_F, f)) if raw_schema is not None else deco_func(cast(F, f))
+        return (
+            deco_raw(cast(Raw_F, f))
+            if raw_schema is not None
+            else deco_func(cast(F, f))
+        )
 
     return deco_raw if raw_schema is not None else deco_func
 
@@ -178,7 +182,9 @@ def find_function_tools(cls_or_obj: Any) -> list[FunctionTool | RawFunctionTool]
 
 class ToolContext:
     def __init__(self, tools: list[FunctionTool | RawFunctionTool]) -> None:
-        self.update_tools[tools]
+        self._tools_map: dict[str, FunctionTool | RawFunctionTool] = {}
+        self._tools: list[FunctionTool | RawFunctionTool] = []
+        self.update_tools(tools)
 
     @classmethod
     def empty(cls) -> ToolContext:
@@ -192,7 +198,7 @@ class ToolContext:
         self._tools = tools.copy()
 
         for method in find_function_tools(self):
-            tools.apend(method)
+            tools.append(method)
 
         self._tools_map: dict[str, FunctionTool | RawFunctionTool] = {}
         info: _FunctionToolInfo | _RawFunctionToolInfo
@@ -210,5 +216,5 @@ class ToolContext:
 
             self._tools_map[info.name] = tool
 
-        def copy(self) -> ToolContext:
-            return ToolContext(self._tools.copy())
+    def copy(self) -> ToolContext:
+        return ToolContext(self._tools.copy())

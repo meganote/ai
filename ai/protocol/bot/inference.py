@@ -67,7 +67,9 @@ async def execute_tools_task(
                 )
                 continue
 
-            if not is_function_tool(function_tool) and not is_raw_function_tool(function_tool):
+            if not is_function_tool(function_tool) and not is_raw_function_tool(
+                function_tool
+            ):
                 logger.error(
                     f"unknown tool type: {type(function_tool)}",
                     extra={
@@ -113,7 +115,7 @@ async def execute_tools_task(
                     name=f"function_tool_{fnc_call.name}",
                 )
 
-                tasks.apend(task)
+                tasks.append(task)
             except Exception as e:
                 logger.exception(
                     "exception occurred while executing tool",
@@ -147,7 +149,9 @@ async def execute_tools_task(
                 tool_output.output.append(py_out)
                 tasks.remove(task)
 
-            task.add_done_callback(partial(_log_exceptions, py_out=py_out, fnc_call=fnc_call))
+            task.add_done_callback(
+                partial(_log_exceptions, py_out=py_out, fnc_call=fnc_call)
+            )
 
         await asyncio.shield(asyncio.gather(*tasks, return_exceptions=True))
 

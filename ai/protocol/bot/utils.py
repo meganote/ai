@@ -55,10 +55,6 @@ class RunContext(Generic[Userdata_T]):
         return self._function_call
 
 
-def is_given(obj: NotGivenOr[_T]) -> TypeGuard[_T]:
-    return not isinstance(obj, NotGiven)
-
-
 # def is_context_type(ty: type) -> bool:
 #     from ..voice.events import RunContext
 
@@ -69,7 +65,11 @@ def is_given(obj: NotGivenOr[_T]) -> TypeGuard[_T]:
 
 
 def is_typed_dict(cls: type | Any) -> bool:
-    return isinstance(cls, type) and issubclass(cls, dict) and hasattr(cls, "__annotations__")
+    return (
+        isinstance(cls, type)
+        and issubclass(cls, dict)
+        and hasattr(cls, "__annotations__")
+    )
 
 
 def build_strict_openai_schema(
