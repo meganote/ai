@@ -3,7 +3,8 @@ from __future__ import annotations
 import time
 from typing import Annotated, Any, Literal, Sequence, TypeAlias, Union, overload
 
-from pydantic import BaseModel, Field
+from loguru import logger
+from pydantic import BaseModel, Field, TypeAdapter
 
 from ai import utils
 
@@ -292,3 +293,41 @@ class ChatContext:
                 return i + 1
 
         return 0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ChatContext:
+        item_adapter = TypeAdapter(list[ChatItem])
+        items = item_adapter.validate_python(data["items"])
+        return cls(items)
+
+    @property
+    def readonly(self) -> bool:
+        return False
+
+
+class _ReadOnlyChatContext(ChatContext):
+    """A read-only wrapper for ChatContext that prevents modifications."""
+
+    error_msg = (
+        "trying to modify a read-only chat context, "
+        "please use .copy() and agent.update_chat_ctx() to modify the chat context"
+    )
+
+    class _ImmutableList(list[ChatItem]):
+        def _raise_error(self, *args: Any, **kwargs: Any) -> None:
+            logger.error(_ReadOnlyChatContext.error_msg)
+            raise RuntimeError(_ReadOnlyChatContext.error_msg)
+
+        # override all mutating methods to raise errors
+        append = extend = pop = remove = clear = sort = reverse = _raise_error  # type: ignore
+        __setitem__ = __delitem__ = __iadd__ = __imul__ = _raise_error  # type: ignore
+
+        def copy(self) -> list[ChatItem]:
+            return list(self)
+
+    def __init__(self, items: list[ChatItem]):
+        self._items = self._ImmutableList(items)
+
+    @property
+    def readonly(self) -> bool:
+        return True
