@@ -37,7 +37,7 @@ from .utils import to_fnc_ctx
 
 
 @dataclass
-class _BotOptions:
+class _ModelOptions:
     model: str
     user: NotGivenOr[str]
     temperature: NotGivenOr[float]
@@ -48,7 +48,7 @@ class _BotOptions:
     max_completion_tokens: NotGivenOr[int]
 
 
-class Bot(bot.Bot):
+class Model(bot.Model):
     def __init__(
         self,
         *,
@@ -68,7 +68,7 @@ class Bot(bot.Bot):
     ) -> None:
         """Create OpenAI instance"""
         super().__init__()
-        self._opts = _BotOptions(
+        self._opts = _ModelOptions(
             model=model,
             user=user,
             temperature=temperature,
@@ -98,6 +98,11 @@ class Bot(bot.Bot):
             ),
         )
 
+    @property
+    def opts(self) -> str:
+        """Get model name"""
+        return self._opts
+
     @staticmethod
     def with_deepseek(
         *,
@@ -109,13 +114,13 @@ class Bot(bot.Bot):
         temperature: NotGivenOr[float] = NOT_GIVEN,
         parallel_tool_calls: NotGivenOr[bool] = NOT_GIVEN,
         tool_choice: ToolChoice = "auto",
-    ) -> Bot:
+    ) -> Model:
         """Create Meganote instance"""
         api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
         if api_key is None:
             raise ValueError("DEEPSEEK_API_KEY is required")
 
-        return Bot(
+        return Model(
             model=model,
             api_key=api_key,
             base_url=base_url,
@@ -138,7 +143,7 @@ class Bot(bot.Bot):
             completion_create_params.ResponseFormat | type[Any]
         ] = NOT_GIVEN,
         extra_kwargs: NotGivenOr[dict[str, Any]] = NOT_GIVEN,
-    ) -> BotStream:
+    ) -> ModelStream:
         extra = {}
         if is_given(extra_kwargs):
             extra.update(extra_kwargs)
@@ -177,9 +182,8 @@ class Bot(bot.Bot):
         if is_given(response_format):
             extra["response_format"] = bot.to_openai_response_format(response_format)  # type: ignore
 
-        return BotStream(
+        return ModelStream(
             self,
-            model=self._opts.model,
             provider_fmt=self._provider_fmt,
             client=self._client,
             chat_ctx=chat_ctx,
@@ -189,12 +193,11 @@ class Bot(bot.Bot):
         )
 
 
-class BotStream(bot.BotStream):
+class ModelStream(bot.ModelStream):
     def __init__(
         self,
-        bot: Bot,
+        model: Model,
         *,
-        model: str,
         provider_fmt: str,
         client: AsyncClient,
         chat_ctx: bot.ChatContext,
@@ -202,8 +205,7 @@ class BotStream(bot.BotStream):
         conn_options: APIConnectOptions,
         extra_kwargs: dict[dict, Any],
     ) -> None:
-        super().__init__(bot, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options)
-        self._bot = bot
+        super().__init__(model, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options)
         self._model = model
         self._provider_fmt = provider_fmt
         self._client = client
@@ -221,7 +223,7 @@ class BotStream(bot.BotStream):
         oai_stream = await self._client.chat.completions.create(
             messages=cast(list[ChatCompletionMessageParam], chat_ctx),
             tools=fnc_ctx,
-            model=self._model,
+            model=self._model.opts.model,
             stream_options={"include_usage": True},
             stream=True,
             timeout=httpx.Timeout(self._conn_options.timeout),

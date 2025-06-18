@@ -5,9 +5,9 @@ from fastapi import APIRouter, HTTPException
 from loguru import logger
 from sse_starlette import EventSourceResponse
 
-from ai.protocol.bot.bot import ChatChunk
 from ai.protocol.bot.chat_context import ChatContext
-from ai.service.openai.bot import Bot
+from ai.protocol.bot.model import ChatChunk
+from ai.service.openai.model import Model
 from ai.service.tools import get_weather
 
 router = APIRouter()
@@ -28,7 +28,7 @@ router = APIRouter()
     },
 )
 async def stream():
-    bot = Bot.with_deepseek()
+    bot = Model.with_deepseek()
     chat_ctx = ChatContext()
     chat_ctx.add_message(role="user", content="北京今天天气怎么样？")
 
@@ -36,12 +36,12 @@ async def stream():
         async with bot.chat(chat_ctx=chat_ctx, tools=[get_weather]) as stream:
             try:
                 async for chunk in stream:
-                    # yield {
-                    #     "event": "message",
-                    #     "data": json.dumps(chunk.model_dump()),
-                    # }
-                    chat_ctx.insert(chunk.delta.tool_calls)
-                    logger.debug(f"Chat Context updated: {chat_ctx.model_dump()}")
+                    yield {
+                        "event": "message",
+                        "data": json.dumps(chunk.model_dump(), ensure_ascii=False),
+                    }
+                    # chat_ctx.insert(chunk.delta.tool_calls)
+                    # logger.debug(f"Chat Context updated: {chat_ctx.model_dump()}")
             except asyncio.CancelledError:
                 pass
             except Exception as e:

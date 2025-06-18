@@ -1,12 +1,3 @@
-from .bot import (
-    Bot,
-    BotError,
-    BotStream,
-    ChatChunk,
-    ChoiceDelta,
-    CompletionUsage,
-    FunctionToolCall,
-)
 from .chat_context import (
     ChatContent,
     ChatContext,
@@ -14,6 +5,15 @@ from .chat_context import (
     ChatMessage,
     FunctionCall,
     FunctionCallOutput,
+)
+from .model import (
+    ChatChunk,
+    ChoiceDelta,
+    CompletionUsage,
+    FunctionToolCall,
+    Model,
+    ModelError,
+    ModelStream,
 )
 from .tool_context import (
     FunctionTool,
@@ -32,9 +32,9 @@ from .tool_context import (
 from .utils import is_given, to_openai_response_format
 
 __all__ = [
-    "Bot",
-    "BotError",
-    "BotStream",
+    "Model",
+    "ModelError",
+    "ModelStream",
     "ChatChunk",
     "ChoiceDelta",
     "CompletionUsage",

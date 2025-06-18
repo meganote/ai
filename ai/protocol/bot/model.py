@@ -44,7 +44,7 @@ class ChatChunk(BaseModel):
     usage: CompletionUsage | None = None
 
 
-class BotError(BaseModel):
+class ModelError(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     type: Literal["error"] = "error"
     timestamp: float
@@ -53,7 +53,7 @@ class BotError(BaseModel):
     recoverable: bool
 
 
-class Bot(ABC):
+class Model(ABC):
     def __init__(self) -> None:
         super().__init__()
         self._label = f"{type(self).__module__}.{type(self).__name__}"
@@ -66,11 +66,11 @@ class Bot(ABC):
         tools: list[FunctionTool | RawFunctionTool] | None = None,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
         extra_kwargs: NotGivenOr[dict[str, Any]] = NOT_GIVEN,
-    ) -> BotStream: ...
+    ) -> ModelStream: ...
 
     async def aclose(self) -> None: ...
 
-    async def __aenter__(self) -> Bot:
+    async def __aenter__(self) -> Model:
         return self
 
     async def __aexit__(
@@ -82,16 +82,16 @@ class Bot(ABC):
         await self.aclose()
 
 
-class BotStream(ABC, AsyncIterator[ChatChunk]):
+class ModelStream(ABC, AsyncIterator[ChatChunk]):
     def __init__(
         self,
-        bot: Bot,
+        model: Model,
         *,
         chat_ctx: ChatContext,
         tools: list[FunctionTool | RawFunctionTool],
         conn_options: APIConnectOptions,
     ) -> None:
-        self._bot = bot
+        self._model = model
         self._chat_ctx = chat_ctx
         self._tools = tools
         self._conn_options = conn_options
@@ -169,7 +169,7 @@ class BotStream(ABC, AsyncIterator[ChatChunk]):
                 await self._generator.aclose()
             self._generator = None
 
-    async def __aenter__(self) -> BotStream:
+    async def __aenter__(self) -> ModelStream:
         return self
 
     async def __aexit__(
