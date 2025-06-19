@@ -35,9 +35,7 @@ class Agent:
         self._instructions = instructions
         self._tools = tools.copy() + find_function_tools(self)
         self._tool_ctx = ToolContext(self._tools)
-        self._chat_ctx = (
-            chat_ctx.copy(tools=self._tools) if chat_ctx else ChatContext.empty()
-        )
+        self._chat_ctx = chat_ctx.copy(tools=self._tools) if chat_ctx else ChatContext.empty()
 
     @property
     def instructions(self) -> str:
@@ -54,9 +52,7 @@ class Agent:
     async def run(self):
 
         data = _ModelGenerationData()
-        async with self._model.chat(
-            chat_ctx=self._chat_ctx, tools=self._tools
-        ) as stream:
+        async with self._model.chat(chat_ctx=self._chat_ctx, tools=self._tools) as stream:
             try:
                 async for chunk in stream:
                     if isinstance(chunk, str):
@@ -68,7 +64,7 @@ class Agent:
 
                         if chunk.delta.tool_calls:
                             for tool in chunk.delta.tool_calls:
-                                if tool.tpye != "function":
+                                if tool.type != "function":
                                     continue
 
                                 fnc_call = FunctionCall(
@@ -83,9 +79,7 @@ class Agent:
                             data.generated_text += chunk.delta.content
 
                     else:
-                        logger.warning(
-                            f"Model returned an unexpected type: {type(chunk)}"
-                        )
+                        logger.warning(f"Model returned an unexpected type: {type(chunk)}")
             finally:
                 if isinstance(stream, _ACloseable):
                     await stream.aclose()

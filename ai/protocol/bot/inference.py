@@ -40,13 +40,13 @@ async def execute_tools_task(
     *,
     tool_ctx: ToolContext,
     tool_choice: NotGivenOr[ToolChoice],
-    function_stream: AsyncIterable[FunctionCall],
+    function_stream: list[FunctionCall],
     tool_output: _ToolOutput,
 ) -> None:
 
     tasks: list[asyncio.Task[Any]] = []
     try:
-        async for fnc_call in function_stream:
+        for fnc_call in function_stream:
             if tool_choice == "none":
                 logger.error(
                     "A tool call with tool_choice set to 'none', ignoring",
@@ -67,9 +67,7 @@ async def execute_tools_task(
                 )
                 continue
 
-            if not is_function_tool(function_tool) and not is_raw_function_tool(
-                function_tool
-            ):
+            if not is_function_tool(function_tool) and not is_raw_function_tool(function_tool):
                 logger.error(
                     f"unknown tool type: {type(function_tool)}",
                     extra={
@@ -149,9 +147,7 @@ async def execute_tools_task(
                 tool_output.output.append(py_out)
                 tasks.remove(task)
 
-            task.add_done_callback(
-                partial(_log_exceptions, py_out=py_out, fnc_call=fnc_call)
-            )
+            task.add_done_callback(partial(_log_exceptions, py_out=py_out, fnc_call=fnc_call))
 
         await asyncio.shield(asyncio.gather(*tasks, return_exceptions=True))
 
