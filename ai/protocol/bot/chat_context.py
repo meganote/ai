@@ -21,6 +21,12 @@ class ImageContent(BaseModel):
     mime_type: str | None = None
 
 
+class AudioContent(BaseModel):
+    type: Literal["audio_content"] = Field(default="audio_content")
+    frame: list[Any]
+    transcript: str | None = None
+
+
 class FileContent(BaseModel):
     type: Literal["file_content"] = Field(default="file_content")
     file: str
@@ -304,7 +310,7 @@ class ChatContext:
         Finds the position after the last item with `created_at <=` the given timestamp.
         """
         for i in reversed(range(len(self._items))):
-            if self._items[i].created_at <= created_at:
+            if self._items[i].created <= created_at:
                 return i + 1
 
         return 0

@@ -67,7 +67,9 @@ async def execute_tools_task(
                 )
                 continue
 
-            if not is_function_tool(function_tool) and not is_raw_function_tool(function_tool):
+            if not is_function_tool(function_tool) and not is_raw_function_tool(
+                function_tool
+            ):
                 logger.error(
                     f"unknown tool type: {type(function_tool)}",
                     extra={
@@ -147,7 +149,9 @@ async def execute_tools_task(
                 tool_output.output.append(py_out)
                 tasks.remove(task)
 
-            task.add_done_callback(partial(_log_exceptions, py_out=py_out, fnc_call=fnc_call))
+            task.add_done_callback(
+                partial(_log_exceptions, py_out=py_out, fnc_call=fnc_call)
+            )
 
         await asyncio.shield(asyncio.gather(*tasks, return_exceptions=True))
 
@@ -174,7 +178,7 @@ async def execute_tools_task(
 @dataclass
 class _SanitizedOutput:
     fnc_call: FunctionCall
-    fnc_call_output: FunctionCallOutput | None
+    fnc_call_out: FunctionCallOutput | None
     reply_required: bool = field(default=True)
 
 
@@ -216,10 +220,26 @@ class _PythonOutput:
                 agent_task=None,
             )
 
-        fnc_output: Any = self.output
+        fnc_out: Any = self.output
         if (
             isinstance(self.output, list)
             or isinstance(self.output, frozenset)
             or isinstance(self.output, tuple)
         ):
             pass
+
+        return _SanitizedOutput(
+            fnc_call=self.fnc_call.model_copy(),
+            fnc_call_out=(
+                FunctionCallOutput(
+                    name=self.fnc_call.name,
+                    call_id=self.fnc_call.call_id,
+                    output=str(
+                        fnc_out or ""
+                    ),  # take the string representation of the output
+                    is_error=False,
+                )
+            ),
+            reply_required=fnc_out
+            is not None,  # require a reply if the tool returned an output
+        )
