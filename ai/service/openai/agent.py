@@ -18,6 +18,7 @@ from loguru import logger
 from ai.protocol import bot
 from ai.protocol.bot.chat_context import (
     ChatContext,
+    ChatMessage,
     FunctionCall,
     FunctionCallOutput,
     _ReadOnlyChatContext,
@@ -62,12 +63,15 @@ class Agent:
         tools = tools or []
         self._model = model
         self._instructions = instructions
+        self._chat_ctx = ChatContext.empty()
         # self._tools = tools.copy() + find_function_tools(self)
         self._tools = tools.copy()
-        self._chat_ctx = (
-            chat_ctx.copy(tools=self._tools) if chat_ctx else ChatContext.empty()
-        )
         self._tool_ctx = ToolContext(self._tools)
+
+        if self._instructions is not None:
+            self.update_instructions(instructions=instructions)
+        if chat_ctx:
+            self._chat_ctx = chat_ctx.copy(tools=self._tools)
         self._max_rounds = 5
 
     @property
@@ -82,7 +86,9 @@ class Agent:
     def chat_ctx(self) -> bot.ChatContext:
         return _ReadOnlyChatContext(self._chat_ctx.items)
 
-    async def update_instructions(self, instructions: str) -> None:
+    def update_instructions(self, instructions: str) -> None:
+        self._instructions = instructions
+        self._chat_ctx.insert(ChatMessage(role="system", content=[instructions]))
         return
 
     async def update_tools(self, tools: list[FunctionTool | RawFunctionTool]) -> None:

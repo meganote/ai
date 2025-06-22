@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, TypeGuard, TypeVar, Union
+from typing import Literal, TypeGuard, TypeVar, Union, override
 
 from typing_extensions import TypeAlias
 
@@ -13,6 +13,7 @@ class NotGiven:
     def __bool__(self) -> Literal[False]:
         return False
 
+    @override
     def __repr__(self) -> str:
         return "NOT_GIVEN"
 
