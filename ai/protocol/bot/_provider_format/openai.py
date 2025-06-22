@@ -29,6 +29,7 @@ def to_chat_ctx(
         ]
         if tool_calls:
             msg["tool_calls"] = tool_calls
+            msg["content"] = ""  # deepseek needs this
         messages.append(msg)
 
         # append tool outputs following the tool calls
@@ -63,7 +64,6 @@ def _to_chat_item(msg: bot.ChatItem) -> dict[str, Any]:
     elif msg.type == "function_call":
         return {
             "role": "assistant",
-            "content": None,
             "tool_calls": [
                 {
                     "id": msg.call_id,
@@ -80,7 +80,7 @@ def _to_chat_item(msg: bot.ChatItem) -> dict[str, Any]:
         return {
             "role": "tool",
             "tool_call_id": msg.call_id,
-            "content": msg.output,
+            "content": msg.output or "",
             "name": msg.name,
         }
 

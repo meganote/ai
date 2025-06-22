@@ -5,6 +5,7 @@ from .chat_context import (
     ChatMessage,
     FunctionCall,
     FunctionCallOutput,
+    ImageContent,
 )
 from .model import (
     ChatChunk,
@@ -45,6 +46,7 @@ __all__ = [
     "ChatMessage",
     "FunctionCall",
     "FunctionCallOutput",
+    "ImageContent",
     "FunctionTool",
     "RawFunctionTool",
     "StopResponse",

@@ -38,7 +38,7 @@ class ChatMessage(BaseModel):
     type: Literal["message"] = "message"
     role: ChatRole
     content: list[ChatContent]
-    created: float = Field(default_factory=time.time)
+    created_at: float = Field(default_factory=time.time)
 
     @property
     def text_content(self) -> str | None:
@@ -57,7 +57,7 @@ class FunctionCall(BaseModel):
     call_id: str
     name: str
     arguments: str
-    created: float = Field(default_factory=time.time)
+    created_at: float = Field(default_factory=time.time)
 
 
 class FunctionCallOutput(BaseModel):
@@ -67,7 +67,7 @@ class FunctionCallOutput(BaseModel):
     name: str = Field(default="")
     output: str
     is_error: bool
-    created: float = Field(default_factory=time.time)
+    created_at: float = Field(default_factory=time.time)
 
 
 ChatItem = Annotated[
@@ -97,13 +97,13 @@ class ChatContext:
         role: ChatRole,
         content: list[ChatContent] | str,
         id: str | None = None,
-        created: float | None = None,
+        created_at: float | None = None,
     ) -> ChatMessage:
         kwargs: dict[str, Any] = {}
         if id:
             kwargs["id"] = id
-        if created:
-            kwargs["created"] = created
+        if created_at:
+            kwargs["created_at"] = created_at
 
         if isinstance(content, str):
             message = ChatMessage(role=role, content=[content], **kwargs)
@@ -118,8 +118,8 @@ class ChatContext:
         items = item if isinstance(item, list) else [item]
 
         for _item in items:
-            print(f"!!! Inserting item into chat context: {_item}")
-            idx = self.find_insertion_index(created_at=_item.created)
+            logger.debug(f"insert item into chat context: {_item}")
+            idx = self.find_insertion_index(created_at=_item.created_at)
             self._items.insert(idx, _item)
 
     def get_by_id(self, item_id: str) -> ChatItem | None:
@@ -310,7 +310,7 @@ class ChatContext:
         Finds the position after the last item with `created_at <=` the given timestamp.
         """
         for i in reversed(range(len(self._items))):
-            if self._items[i].created <= created_at:
+            if self._items[i].created_at <= created_at:
                 return i + 1
 
         return 0

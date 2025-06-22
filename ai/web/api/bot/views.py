@@ -89,7 +89,7 @@ async def weather():
         tools=tools,
     )
 
-    return EventSourceResponse(agent.run())
+    return EventSourceResponse(agent.stream())
 
     # tool_output = _ToolOutput(output=[], first_tool_fut=asyncio.Future())
 

@@ -28,7 +28,7 @@ class Function(BaseModel):
 
 
 class NamedToolChoice(BaseModel):
-    type: Literal["function"] = Field(...)  # 必填字段
+    type: Literal["function"] = Field(...)
     function: Function
 
 

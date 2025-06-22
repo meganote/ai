@@ -86,24 +86,25 @@ class Agent:
         """Called when the task is exited"""
         pass
 
-    async def run(self):
+    async def stream(self):
         max_rounds = 2
         round = 0
-        tool_output = _ToolOutput(output=[], first_tool_fut=asyncio.Future())
 
         while round < max_rounds:
             round += 1
 
             logger.debug(f"round #{round}: {self._chat_ctx.to_dict()}")
             data = _ModelGenerationData()
+            tool_output = _ToolOutput(output=[], first_tool_fut=asyncio.Future())
             async with self._model.chat(
                 chat_ctx=self._chat_ctx, tools=self._tools
             ) as stream:
                 try:
                     async for chunk in stream:
+                        logger.debug(f"processing ChatChunk: {chunk}")
                         if isinstance(chunk, str):
                             data.generated_text += chunk
-                            yield self._create_event("message", chunk.model_dump())
+                            yield self._create_event("message", chunk)
 
                         elif isinstance(chunk, bot.ChatChunk):
                             if not chunk.delta:
@@ -127,11 +128,14 @@ class Agent:
 
                             if chunk.delta.content:
                                 data.generated_text += chunk.delta.content
+                                yield self._create_event("message", chunk.delta.content)
 
                         else:
                             logger.warning(
                                 f"Model returned an unexpected type: {type(chunk)}"
                             )
+
+                    # TODO: only create_task if tool_calls
 
                     task = asyncio.create_task(
                         execute_tools_task(
@@ -173,6 +177,8 @@ class Agent:
                         if generate_tool_reply:
                             continue
 
+                    logger.debug(f"model generated data: {data}")
+
                     break
 
                 except asyncio.CancelledError:
@@ -186,8 +192,6 @@ class Agent:
                 finally:
                     if isinstance(stream, _ACloseable):
                         await stream.aclose()
-
-            logger.debug(f"data: {data}")
 
     def _create_event(self, event: str, data: Any) -> dict:
         return {"event": event, "data": json.dumps(data, ensure_ascii=False)}
