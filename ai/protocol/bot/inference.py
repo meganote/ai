@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, AsyncIterable
+from typing import Any, AsyncIterable, Optional
 
 from loguru import logger
 from pydantic import ValidationError
@@ -40,44 +40,20 @@ async def execute_tools_task(
     *,
     tool_ctx: ToolContext,
     tool_choice: NotGivenOr[ToolChoice],
-    function_stream: list[FunctionCall],
+    function_list: list[FunctionCall],
     tool_output: _ToolOutput,
 ) -> None:
 
     tasks: list[asyncio.Task[Any]] = []
     try:
-        for fnc_call in function_stream:
-            if tool_choice == "none":
-                logger.error(
-                    "A tool call with tool_choice set to 'none', ignoring",
-                    extra={
-                        "function": fnc_call.name,
-                    },
-                )
-                continue
-
-            # TODO: other tool_choice values
-
-            if (function_tool := tool_ctx.function_tools.get(fnc_call.name)) is None:
-                logger.warning(
-                    f"unknown function: {fnc_call.name}",
-                    extra={
-                        "function": fnc_call.name,
-                    },
-                )
-                continue
-
-            if not is_function_tool(function_tool) and not is_raw_function_tool(
-                function_tool
+        for fnc_call in function_list:
+            # Invalid function
+            if not _should_process_call(
+                tool_ctx=tool_ctx, tool_choice=tool_choice, fnc_call=fnc_call
             ):
-                logger.error(
-                    f"unknown tool type: {type(function_tool)}",
-                    extra={
-                        "function": fnc_call.name,
-                    },
-                )
                 continue
 
+            function_tool = tool_ctx.function_tools.get(fnc_call.name)
             py_out = _PythonOutput(fnc_call=fnc_call, output=None, exception=None)
             try:
                 json_args = fnc_call.arguments or "{}"
@@ -173,6 +149,44 @@ async def execute_tools_task(
                 "tools execution completed",
                 extra={},
             )
+
+
+def _should_process_call(
+    *,
+    tool_ctx: ToolContext,
+    tool_choice: NotGivenOr[ToolChoice],
+    fnc_call: FunctionCall,
+) -> bool:
+    if tool_choice == "none":
+        logger.error(
+            "A tool call with tool_choice set to 'none', ignoring",
+            extra={
+                "function": fnc_call.name,
+            },
+        )
+        return False
+
+    # TODO: other tool_choice values
+
+    if (function_tool := tool_ctx.function_tools.get(fnc_call.name)) is None:
+        logger.warning(
+            f"unknown function: {fnc_call.name}",
+            extra={
+                "function": fnc_call.name,
+            },
+        )
+        return False
+
+    if not is_function_tool(function_tool) and not is_raw_function_tool(function_tool):
+        logger.error(
+            f"unknown tool type: {type(function_tool)}",
+            extra={
+                "function": fnc_call.name,
+            },
+        )
+        return False
+
+    return True
 
 
 @dataclass

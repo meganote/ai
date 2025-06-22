@@ -3,7 +3,15 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import (
+    Any,
+    AsyncIterator,
+    Literal,
+    Protocol,
+    TypeAlias,
+    TypedDict,
+    runtime_checkable,
+)
 
 from loguru import logger
 
@@ -27,6 +35,13 @@ from ai.protocol.bot.tool_context import (
 )
 from ai.protocol.types import NOT_GIVEN, NotGivenOr
 from ai.utils.misc import shortuuid
+
+EventType: TypeAlias = Literal["message", "tool_call", "tool_resut", "error"]
+
+
+class StreamEvent(TypedDict):
+    event: EventType
+    data: str
 
 
 @runtime_checkable
@@ -53,6 +68,7 @@ class Agent:
             chat_ctx.copy(tools=self._tools) if chat_ctx else ChatContext.empty()
         )
         self._tool_ctx = ToolContext(self._tools)
+        self._max_rounds = 5
 
     @property
     def instructions(self) -> str:
@@ -86,11 +102,10 @@ class Agent:
         """Called when the task is exited"""
         pass
 
-    async def stream(self):
-        max_rounds = 2
+    async def stream(self) -> AsyncIterator[StreamEvent]:
         round = 0
 
-        while round < max_rounds:
+        while round < self._max_rounds:
             round += 1
 
             logger.debug(f"round #{round}: {self._chat_ctx.to_dict()}")
@@ -135,18 +150,12 @@ class Agent:
                                 f"Model returned an unexpected type: {type(chunk)}"
                             )
 
-                    # TODO: only create_task if tool_calls
-
-                    task = asyncio.create_task(
-                        execute_tools_task(
-                            tool_ctx=ToolContext(self.tools),
-                            tool_choice="auto",
-                            function_stream=data.generated_functions,
-                            tool_output=tool_output,
-                        ),
-                        name="execute_tools_task",
+                    await execute_tools_task(
+                        tool_ctx=ToolContext(self.tools),
+                        tool_choice="auto",
+                        function_list=data.generated_functions,
+                        tool_output=tool_output,
                     )
-                    await task
 
                     if len(tool_output.output) > 0:
                         new_calls: list[FunctionCall] = []
@@ -184,14 +193,10 @@ class Agent:
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
-                    pass
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({"error": str(e)}),
-                    }
+                    yield self._create_event("error", json.dumps({"error": str(e)}))
                 finally:
                     if isinstance(stream, _ACloseable):
                         await stream.aclose()
 
-    def _create_event(self, event: str, data: Any) -> dict:
-        return {"event": event, "data": json.dumps(data, ensure_ascii=False)}
+    def _create_event(self, event: EventType, data: Any) -> StreamEvent:
+        return StreamEvent(event=event, data=json.dumps(data, ensure_ascii=False))
